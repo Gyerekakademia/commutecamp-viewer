@@ -103,7 +103,11 @@
       }
     }
 
-    Promise.all([fetch("entities.json").then(r => r.json()), fetch("stats.json").then(r => r.json())])
+    const dataRoot = "https://raw.githubusercontent.com/Gyerekakademia/commutecamp-viewer/main/";
+    Promise.all([
+      fetch(`${dataRoot}entities.json`).then(r => r.json()),
+      fetch(`${dataRoot}stats.json`).then(r => r.json())
+    ])
       .then(([entityData, statData]) => {
         records = entityData;
         stats = statData;
