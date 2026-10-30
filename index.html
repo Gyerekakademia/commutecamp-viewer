@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="hu">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CommuteCamp CRM</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, sans-serif; color: #17212b; }
+    body { margin: 0; background: #f4f7f9; }
+    header { padding: 24px max(20px, 5vw); background: #073b4c; color: white; }
+    header h1 { margin: 0 0 4px; font-size: 30px; }
+    header p { margin: 0; opacity: .82; }
+    main { padding: 22px max(20px, 5vw) 48px; }
+    .cards { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 12px; }
+    .card, .panel { background: white; border-radius: 14px; box-shadow: 0 3px 16px #16324f12; }
+    .card { padding: 16px; }
+    .card strong { display: block; font-size: 28px; color: #0b6e75; }
+    .card span { color: #61717d; font-size: 14px; }
+    .controls { display: flex; gap: 10px; margin: 18px 0; flex-wrap: wrap; }
+    input, select { border: 1px solid #ccd6dc; border-radius: 10px; padding: 11px 13px; font: inherit; background: white; }
+    input { flex: 1; min-width: 240px; }
+    .panel { overflow: hidden; margin-top: 14px; }
+    #map { height: 440px; }
+    .table-wrap { max-height: 620px; overflow: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th { position: sticky; top: 0; background: #eaf1f3; text-align: left; }
+    th, td { padding: 10px 12px; border-bottom: 1px solid #edf1f3; }
+    a { color: #087f8c; }
+    .note { color: #647581; font-size: 13px; margin: 10px 2px; }
+    @media (max-width: 720px) {
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      #map { height: 330px; }
+      th:nth-child(4), td:nth-child(4) { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CommuteCamp CRM</h1>
+    <p>Magyarországi iskolák és nyári táborok kereshető adatbázisa</p>
+  </header>
+  <main>
+    <section class="cards">
+      <div class="card"><strong id="schools">0</strong><span>iskola</span></div>
+      <div class="card"><strong id="camps">0</strong><span>táborjelölt</span></div>
+      <div class="card"><strong id="organizers">0</strong><span>táborszervező</span></div>
+      <div class="card"><strong id="mapped">0</strong><span>térképes tábor</span></div>
+    </section>
+    <div class="controls">
+      <input id="search" type="search" placeholder="Keresés név, település vagy szervező alapján">
+      <select id="category">
+        <option value="camp">Nyári táborok</option>
+        <option value="school">Iskolák</option>
+      </select>
+    </div>
+    <p class="note">A táborjelöltek ellenőrzése folyamatban van. A barna körök településszintű, hozzávetőleges pontok; a hagyományos jelölők pontos térképpontok.</p>
+    <section class="panel"><div id="map"></div></section>
+    <section class="panel table-wrap">
+      <table>
+        <thead><tr><th>Név</th><th>Szervező</th><th>Település</th><th>Cím</th><th>Forrás</th></tr></thead>
+        <tbody id="results"></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const map = L.map("map").setView([47.16, 19.5], 7);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "© OpenStreetMap contributors"
+    }).addTo(map);
+    const markers = L.layerGroup().addTo(map);
+    let records = [];
+    let stats = {};
+
+    function safe(value) {
+      const node = document.createElement("span");
+      node.textContent = value || "";
+      return node.innerHTML;
+    }
+
+    function render() {
+      const category = document.getElementById("category").value;
+      const query = document.getElementById("search").value.toLocaleLowerCase("hu");
+      const filtered = records.filter(r => r.category === category && (
+        !query || [r.name, r.organizer, r.city, r.address].join(" ").toLocaleLowerCase("hu").includes(query)
+      ));
+      document.getElementById("results").innerHTML = filtered.slice(0, 1000).map(r => `
+        <tr>
+          <td>${safe(r.name)}</td><td>${safe(r.organizer)}</td><td>${safe(r.city)}</td>
+          <td>${safe(r.address)}</td>
+          <td>${r.website ? `<a href="${encodeURI(r.website)}" target="_blank" rel="noopener">Megnyitás</a>` : ""}</td>
+        </tr>`).join("");
+      markers.clearLayers();
+      if (category === "camp") {
+        filtered.filter(r => r.latitude && r.longitude).forEach(r => {
+          const position = [r.latitude, r.longitude];
+          const marker = r.location_precision === "settlement"
+            ? L.circleMarker(position, {radius: 5, color: "#a16207", fillOpacity: .55})
+            : L.marker(position);
+          marker.bindPopup(`<strong>${safe(r.name)}</strong><br>${safe(r.city)}${r.address ? `<br>${safe(r.address)}` : ""}`).addTo(markers);
+        });
+      }
+    }
+
+    Promise.all([fetch("entities.json").then(r => r.json()), fetch("stats.json").then(r => r.json())])
+      .then(([entityData, statData]) => {
+        records = entityData;
+        stats = statData;
+        Object.entries(stats).forEach(([key, value]) => {
+          const node = document.getElementById(key);
+          if (node) node.textContent = Number(value).toLocaleString("hu-HU");
+        });
+        render();
+      });
+    document.getElementById("search").addEventListener("input", render);
+    document.getElementById("category").addEventListener("change", render);
+  </script>
+</body>
+</html>
